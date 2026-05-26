@@ -369,14 +369,14 @@ impl DeviceManager {
     }
 
     pub fn get_fan_rpm(&mut self, ac: usize) -> i32 {
+        if let Some(config) = self.get_ac_config(ac) {
+            return config.fan_rpm;
+        }
+
         if let Some(laptop) = self.get_device() {
             if laptop.ac_state as usize == ac {
                 return laptop.get_fan_rpm() as i32;
             }
-        }
-
-        if let Some(config) = self.get_ac_config(ac) {
-            return config.fan_rpm;
         }
 
         0

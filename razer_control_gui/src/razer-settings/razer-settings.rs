@@ -32,6 +32,7 @@ use widgets::*;
 
 const COOLING_PAD_TAB_POSITION: i32 = 3;
 type CoolingPadState = (bool, i32, String, Vec<u8>);
+const FAN_SLIDER_STEP: f64 = 50f64;
 
 #[derive(Clone)]
 struct CoolingPadUi {
@@ -634,14 +635,14 @@ fn make_page(ac: bool, device: SupportedDevice) -> SettingsPage {
         gtk::Orientation::Horizontal,
         min_fan_speed,
         max_fan_speed,
-        1f64,
+        FAN_SLIDER_STEP,
     );
     scale.set_value(fan_speed as f64);
     scale.set_sensitive(fan_speed != 0);
-    scale.set_width_request(100);
+    scale.set_width_request(200);
     scale.connect_change_value(clone!(@weak switch => @default-return gtk::glib::Propagation::Stop, move |scale, _, value| {
-            let value = value.clamp(min_fan_speed, max_fan_speed);
-            set_fan_speed(ac, value as i32).or_crash("Error setting fan speed");
+            let value = round_fan_slider_value(value, min_fan_speed, max_fan_speed);
+            set_fan_speed(ac, value).or_crash("Error setting fan speed");
             let fan_speed = get_fan_speed(ac).or_crash("Error reading fan speed");
             let auto = fan_speed == 0;
             scale.set_value(fan_speed as f64);
@@ -665,7 +666,7 @@ fn make_page(ac: bool, device: SupportedDevice) -> SettingsPage {
     let label = Label::new(Some("Brightness"));
     let scale = Scale::with_range(gtk::Orientation::Horizontal, 0f64, 100f64, 1f64);
     scale.set_value(brightness as f64);
-    scale.set_width_request(100);
+    scale.set_width_request(200);
     scale.connect_change_value(move |scale, _, value| {
         let value = value.clamp(0f64, 100f64);
         set_brightness(ac, value as u8).or_crash("Error setting brightness");
@@ -782,7 +783,7 @@ fn make_general_page() -> SettingsPage {
         let label = Label::new(Some("Threshold"));
         let scale = Scale::with_range(gtk::Orientation::Horizontal, 65f64, 80f64, 1f64);
         scale.set_value(bho.1 as f64);
-        scale.set_width_request(100);
+        scale.set_width_request(200);
         scale.connect_change_value(clone!(@weak switch => @default-return gtk::glib::Propagation::Stop, move |scale, _, value| {
                 let is_on = switch.is_active();
                 let threshold = value.clamp(50f64, 80f64) as u8;
@@ -832,6 +833,11 @@ fn sync_cooling_pad_controls(switch: &Switch, scale: &Scale, present: bool, fan_
     }
 }
 
+fn round_fan_slider_value(value: f64, min: f64, max: f64) -> i32 {
+    (((value.clamp(min, max) - min) / FAN_SLIDER_STEP).round() * FAN_SLIDER_STEP + min)
+        .clamp(min, max) as i32
+}
+
 fn cooling_pad_effect_index(name: &str) -> u32 {
     match name {
         "static" => 1,
@@ -872,8 +878,13 @@ fn make_cooling_pad_page(state: CoolingPadState) -> (SettingsPage, Rc<CoolingPad
     fan_section.add_row(&row.master_container);
 
     let label = Label::new(Some("Fan Speed"));
-    let fan_scale = Scale::with_range(gtk::Orientation::Horizontal, 500f64, 3200f64, 50f64);
-    fan_scale.set_width_request(100);
+    let fan_scale = Scale::with_range(
+        gtk::Orientation::Horizontal,
+        500f64,
+        3200f64,
+        FAN_SLIDER_STEP,
+    );
+    fan_scale.set_width_request(200);
     let row = SettingsRow::new(&label, &fan_scale);
     fan_section.add_row(&row.master_container);
 
@@ -882,7 +893,7 @@ fn make_cooling_pad_page(state: CoolingPadState) -> (SettingsPage, Rc<CoolingPad
     fan_scale.connect_change_value(clone!(
         @weak fan_auto_switch
         => @default-return gtk::glib::Propagation::Stop, move |scale, _, value| {
-            let value = value.clamp(500f64, 3200f64) as i32;
+            let value = round_fan_slider_value(value, 500f64, 3200f64);
             let _ = set_cooling_pad_fan_speed(value);
             sync_cooling_pad_controls(&fan_auto_switch, scale, true, value);
             gtk::glib::Propagation::Stop
@@ -892,7 +903,11 @@ fn make_cooling_pad_page(state: CoolingPadState) -> (SettingsPage, Rc<CoolingPad
     fan_auto_switch.connect_changed_active(clone!(
         @weak fan_scale
         => move |switch| {
-            let target = if switch.is_active() { 0 } else { fan_scale.value().clamp(500f64, 3200f64) as i32 };
+            let target = if switch.is_active() {
+                0
+            } else {
+                round_fan_slider_value(fan_scale.value(), 500f64, 3200f64)
+            };
             let _ = set_cooling_pad_fan_speed(target);
             sync_cooling_pad_controls(switch, &fan_scale, true, target);
         }
